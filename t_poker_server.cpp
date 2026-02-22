@@ -19,6 +19,30 @@ class typeTable {
     friend void init_table();
 };
 
+struct Msg {
+    int attachedData1=-1;
+    int attachedData2=-1;
+};
+
+struct DealerMsg : public Msg{
+    int dealerId;
+    enum outMsgType { DISTRIBUTE=0, ACTION_SUCCESS, ACTION_RES } type;
+};//发牌信息、行动成功后的信息
+
+struct otherMsg : public Msg{
+    enum otherMsgType {UPDATE=0,STATUE_CHANGE} type;
+    enum updateType { NEW_PLAYER=0, PLAYER_LEFT, NEW_BET, NEW_COMMUNITY_CARD,  } updateType;
+};//服务器发给玩家的消息。
+//通知其他玩家的行动、欢迎页面、提示等。
+
+struct inPlayerMsg : public Msg{
+    int playerId;
+    enum inMsgType { CREATE_ROOM=0, JOIN_ROOM, START_GAME, PLAYER_ACTION, END_GAME } type;
+};//玩家发来的消息。当创建房间时，附加数据分别是房间id和人数上限，所有附加数据必填，-1为无效
+//当加入房间时，附加数据1是房间id
+//当开始游戏时，需要判断是否是房主
+//当玩家行动时，附加数据1是行动类型（跟注=0、加注、全押、弃牌），附加数据2是操作对应的金额
+
 struct Pot {
     int amount; // 底池金额
     std::vector<int> exempt_players; // 没有资格参与这个底池分配的玩家列表（all in的玩家）
@@ -119,17 +143,8 @@ class Dealer {
     }
     public:
     short player_call(Player* player) {
-        // 处理玩家的跟注、加注、全押等操作
-        if (playerchips <= currentBet) {
-            // 玩家全押
-            player_allin(playerid, playerchips);
-            return playerchips; // 返回玩家实际行动的金额
-        } else {
-            // 玩家跟注或加注
-            int call_amount = currentBet; // 这里需要计算玩家需要跟注的金额，可能是currentBet，也可能是currentBet与玩家当前下注金额的差值
-            // 更新当前轮的最高下注金额currentBet，如果玩家加注了
-            return call_amount; // 返回玩家实际行动的金额
-        }
+        // 处理玩家的跟注，计算实际下注金额
+       
         // 返回玩家当前的下注金额
         return 0;
     }
@@ -140,7 +155,7 @@ class Dealer {
     }
 
     short player_allin(int playerid, int amount) {
-        // 玩家全押，更新状态和底池
+        // 玩家全押，更新状态和底池、边池
         allinPlayer[playerid] = true;
         // 更新底池金额
         allinSequence.push_back(playerid);
@@ -250,7 +265,7 @@ int main() {
     //以前用epoll_create函数创建epoll实例，其参数表示最大监控的socket数量，但现在这个参数作废了
 
 
-    struct epoll_event ev, events[10]; 
+    struct epoll_event ev, events[20]; 
     //epoll_event结构体用于描述一个事件，包含两个成员：events和data
     //events表示事件类型：EPOLLIN（fd可读），EPOLLOUT（fd可写），EPOLLET（边缘触发模式）
 
@@ -268,7 +283,7 @@ int main() {
     
     while (true) {
         //loop部分
-        int n = epoll_wait(epoll_fd, events, 10, -1);
+        int n = epoll_wait(epoll_fd, events, 20, -1);
         //epoll_wait函数会阻塞当前线程，直到有事件发生或者超时
         //epoll_fd是创建的epoll实例，events是事件接收缓冲区
         //10是缓冲区大小，-1表示无限等待，如果设为正整数表示这个函数的等待时间
@@ -277,46 +292,58 @@ int main() {
 
         for (int i = 0; i < n; i++) {
             // 2. 这里的 events[i].data.fd 就是之前存入 ev.data.fd 的那个 Key
+            // 这个ev.data.fd用于辨认哪个过滤器触发了事件，也就是哪个连接（fd）发生了事件
             if (events[i].data.fd == server_fd) {
                 //新玩家连接事件
                 struct sockaddr_in client_addr;
                 socklen_t client_len = sizeof(client_addr);
                 int client_fd = accept(server_fd, (struct sockaddr*)&client_addr, &client_len);
-                
+                //accept会为就绪的第一个连接创建一个描述符，并把这个连接剔除出监听队列，并返回这个连接的描述符
                 if (client_fd != -1) {
                     // 接下来需要将新玩家的 client_fd 也加入 epoll 监控池
                     struct epoll_event client_ev;
-                    client_ev.events = EPOLLIN; // 监听玩家发来的指令
-                    client_ev.data.fd = client_fd; // 标记这是哪位玩家
+                    client_ev.events = EPOLLIN;
+                    client_ev.data.fd = client_fd;//过滤器：监听此新玩家的输入
                     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &client_ev);
                     
                     // 调用欢迎
                     send_hello(client_fd);
+                    // 一个fd是一个连接的索引
                     printf("New player connected: %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
                 }
 
             } else {
-                //非连接事件
+                //非新玩家连接事件
                 char buffer[1024] = {0};
                 int bytes_read = recv(events[i].data.fd, buffer, sizeof(buffer), 0);
+                //返回值是实际读取的字节数，如果返回0表示连接被对方关闭，返回-1表示发生错误
                 //events[i].data.fd 是玩家的文件描述符
                 //buffer 是接收数据的缓冲区，数据在这里读取
                 //sizeof(buffer) 是读取的最大字节数
                 //最后一个参数是标志位，0 表示默认行为，MSG_PEEK 表示查看数据但不从缓冲区移除
                 //MSG_WAITALL 表示等待缓冲区大于等于前面读取的字节数才返回
+                if(bytes_read > 0) {
+                    // 正常读取数据
+                    
+                    buffer
 
-                if (bytes_read == 0) {
+                } else if (bytes_read == 0) {
                     // 玩家断开了连接
                     printf("Player %d disconnected.\n", events[i].data.fd);
                     epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, NULL);
                     close(events[i].data.fd);
-                } else if (bytes_read > 0) {
-                    // 收到玩家的指令（例如：“跟注”），可以在这里处理德州扑克逻辑
-                    printf("Received from player %d: %s\n", events[i].data.fd, buffer);
-                    
-                
-                
-                
+                } else if (bytes_read == -1) {
+                    // 连接出错
+                    struct sockaddr_in addr;
+                    socklen_t addr_len = sizeof(addr);
+                    if (getpeername(events[i].data.fd, (struct sockaddr *)&addr, &addr_len) == -1) {
+                        perror("getpeername 失败");
+                        return;
+                    }
+                    //给出连接出错的玩家的具体报错信息
+                    std::cerr << "Error reading from player " << events[i].data.fd <<"from"<< inet_ntoa(addr.sin_addr) << std::endl;
+                    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, NULL);
+                    close(events[i].data.fd);
                 }
             }
         }
