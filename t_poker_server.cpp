@@ -13,7 +13,7 @@
 
 class typeTable {
     private:
-    static std::map<int, short> typeMap;
+    static std::map<long long, short> typeMap;
 
     friend class Dealer;
     friend void init_table();
@@ -63,6 +63,12 @@ class Dealer {
     std::vector<short> cards[5];//牌串，记录公共牌
     std::vector<short> color[4];//花色数量串，记录公共牌的四种花色数量，用于判断同花
     short currentPotIndex;//当前的底池索引
+    static constexpr int oddList[52] = {
+        1, 2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 
+        59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 
+        137, 139, 149, 151, 157, 163, 167, 173, 179, 181, 191, 193, 197, 199, 211, 223, 
+        227, 229, 233
+    };//质数表，用于生成牌型id
 
     void count(int AllinCount, int * AllinAmountList, int * AllinPlayerList) {//本轮allin人数、allin的金额、allin玩家的id列表
         // 当一轮结束时，计算底池金额和边池金额
@@ -74,7 +80,7 @@ class Dealer {
         }
     }
 //0 1 2 3 4 5 6
-    short rank5in7(std::vector<int> hand,  std::vector<int> community_cards, std::vector<short> odd_list[13]) {
+    short rank5in7(int& hand[2],  std::vector<short> community_cards) {
         // 计算玩家最大可能牌型，并转换为牌型排名
         std::vector<int> all_cards={hand[0], hand[1], community_cards[0], community_cards[1], community_cards[2], community_cards[3], community_cards[4]};
         short max_rank = 1;
@@ -83,11 +89,12 @@ class Dealer {
                 for(int k=j+1;k<5;k++){
                     for(int l=k+1;l<6;l++){
                         for(int m=l+1;m<7;m++){
-                            int composeId = odd_list[all_cards[i]] * odd_list[all_cards[j]] * odd_list[all_cards[k]] * odd_list[all_cards[l]] * odd_list[all_cards[m]];
+                            long long composeId = oddList[all_cards[i]] * oddList[all_cards[j]] * oddList[all_cards[k]] * oddList[all_cards[l]] * oddList[all_cards[m]];
                             short rank = typeTable::typeMap[composeId]; // 这里需要根据牌的具体编码来计算牌型排名
 
                             if (rank > max_rank) {
                                 max_rank = rank;
+
                             }
                         }
                     }
@@ -99,11 +106,6 @@ class Dealer {
     
     void player_rank(std::vector<Player> players) {
         // 结算函数，根据玩家的牌型生成排名串
-        std::vector<short> odd_list={1,2,3,5,7,11,13,17,19,23,29,31,37};//质数串，用于生成牌型id
-        for (int i = 0; i < playerCount; i++) {
-            suited(color);
-            int currentrank = rank5in7(players[i].hand, cards, odd_list);
-        }
 
     }
 
@@ -115,14 +117,26 @@ class Dealer {
         // 轮换小盲和大盲
         sbId = (sbId + 1) % playerCount;
     }
-
-    short player_call() {
+    public:
+    short player_call(Player* player) {
         // 处理玩家的跟注、加注、全押等操作
+        if (playerchips <= currentBet) {
+            // 玩家全押
+            player_allin(playerid, playerchips);
+            return playerchips; // 返回玩家实际行动的金额
+        } else {
+            // 玩家跟注或加注
+            int call_amount = currentBet; // 这里需要计算玩家需要跟注的金额，可能是currentBet，也可能是currentBet与玩家当前下注金额的差值
+            // 更新当前轮的最高下注金额currentBet，如果玩家加注了
+            return call_amount; // 返回玩家实际行动的金额
+        }
+        // 返回玩家当前的下注金额
+        return 0;
     }
 
-    void player_fold(int playerid) {
+    void player_fold(Player* player) {
         // 玩家弃牌，更新状态
-        activePlayer[playerid] = false;
+        activePlayer[player->playerid] = false;
     }
 
     short player_allin(int playerid, int amount) {
@@ -136,13 +150,16 @@ class Dealer {
 };
 
 class Player {
+    public:
     int playerid;
     std::string name;
-    int chips;
-    int hand[2]; // 手牌
-    int rebuycount;
-    int dealerid;// 这个玩家所在的牌局的dealer
-    enum status { WAITING, ACTIVE, FOLDED, ALL_IN };//这里的waiting表示在局内但是还未轮到，active表示正在行动
+    private:
+    short chips;
+    short hand[2]; // 手牌
+    short rebuycount;
+    Dealer* dealer;// 这个玩家所在的牌局的dealer
+    short currentBet;//当前轮已经下注的金额
+    enum status { WAITING, ACTIVE, FOLDED, ALL_IN } playerStatus;//这里的waiting表示在局内但是还未轮到，active表示正在行动
 
     int rebuy(int amount) {
         if (amount <= 0||amount > 10) return-1; // 无效的买入金额
@@ -153,31 +170,28 @@ class Player {
 
     void fold() {
         // 玩家弃牌
-        this->status = FOLDED;
+        dealer->player_fold(this);
+        playerStatus = FOLDED;
     }
 
-    void raise(int amount) {
+    void raise(short amount) {//amount是加注后的总下注金额
         //加注，需要判断加注金额是否合法
-        if (amount <= 0 || amount > chips) return; // 无效的加注金额
-        chips -= amount;
-        this->status = WAITING; // 加注后进入等待状态，等待其他玩家行动
+        if (amount <= currentBet || amount > chips) return; // 无效的加注金额
+        chips = chips - amount + currentBet; // 扣除加注金额
+        currentBet = amount;
+        playerStatus = WAITING;
     }
-
+    //玩家告知荷官要干什么->荷官告诉玩家需要扣除多少筹码->玩家扣除筹码并更新状态
     void call() {
-        if (currentbet > chips) {
-            // 玩家无法跟注，选择全押
-            allin();//改用allin函数
-        } else {
-            chips -= currentbet;
-            status = WAITING; // 跟注后进入等待状态，等待其他玩家行动
-        }
+        //玩家跟注，调用荷官的player_call函数，计算需要扣掉的筹码，荷官那边计算实际行动金额，可能是跟注金额，也可能是全押金额
+        chips -= dealer->player_call(this);
     }
 
     void allin() {
+        dealer->player_allin(playerid, chips);
         chips = 0;
-        status = ALL_IN;
+        playerStatus = ALL_IN;
     }
-
 };
 
 void set_nonblocking(int fd) {
@@ -188,6 +202,26 @@ void set_nonblocking(int fd) {
 void send_hello(int client_fd) {//欢迎新玩家，并确认已连接，同时给出现在的牌局状态
     const char* message = "Welcome to the poker game!\n";
     send(client_fd, message, strlen(message), 0);
+}
+
+void game_loop() {
+    // 这里是游戏的主循环，处理玩家的行动，更新游戏状态，发送更新给玩家等
+    while(true){
+        // 处理游戏逻辑，例如发牌、玩家行动、结算等
+    }
+
+    // 当房主选择结束游戏时，跳出循环，进行清理工作，例如关闭玩家连接、重置游戏状态等
+}
+
+void game_prepare_loop() {
+    // 这里是房间的准备阶段，当某玩家开房间后，进入此循环，当其选择开始游戏后，将这些玩家放入游戏主循环game_loop中
+    // 每当一个玩家选择创建房间，会新建一个该函数的线程，如果
+    // 同一个房间的gameloop和game_prepare_loop由同一个线程执行，使用map<roomid,thread>来管理房间和线程的关系
+    while(true){
+
+    }// 房主选择开始游戏后，跳出循环，进入game_loop
+    game_loop();
+
 }
 
 int main() {
@@ -211,7 +245,7 @@ int main() {
     listen(server_fd, 10);
     set_nonblocking(server_fd);
 
-    int epoll_fd = epoll_create1(0);
+    int epoll_fd = epoll_create1(0);//这个epoll仅监听新玩家和未进房间的玩家，进入房间的玩家由每个房间的epoll监听
     //epoll_create1函数创建一个epoll实例，并返回实例的fd，参数0表示默认行为
     //以前用epoll_create函数创建epoll实例，其参数表示最大监控的socket数量，但现在这个参数作废了
 
@@ -231,7 +265,7 @@ int main() {
     //&ev是我们设置的事件过滤器
 
 
-
+    
     while (true) {
         //loop部分
         int n = epoll_wait(epoll_fd, events, 10, -1);
@@ -244,7 +278,7 @@ int main() {
         for (int i = 0; i < n; i++) {
             // 2. 这里的 events[i].data.fd 就是之前存入 ev.data.fd 的那个 Key
             if (events[i].data.fd == server_fd) {
-                //此时是服务器监听事件，也就是新玩家申请连接
+                //新玩家连接事件
                 struct sockaddr_in client_addr;
                 socklen_t client_len = sizeof(client_addr);
                 int client_fd = accept(server_fd, (struct sockaddr*)&client_addr, &client_len);
@@ -262,7 +296,7 @@ int main() {
                 }
 
             } else {
-                //此时是server_fd以外的事件，也就是玩家发来的指令
+                //非连接事件
                 char buffer[1024] = {0};
                 int bytes_read = recv(events[i].data.fd, buffer, sizeof(buffer), 0);
                 //events[i].data.fd 是玩家的文件描述符
