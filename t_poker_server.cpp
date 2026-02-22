@@ -26,6 +26,12 @@ struct Pot {
 
 enum suit { HEARTS = 0, DIAMONDS, CLUBS, SPADES }; // 花色，'H', 'D', 'C', 'S'
 
+struct card
+{
+    enum suit color;
+    int rank; // 牌面值，0-12分别代表2、3...10、J、Q、K、A
+};
+
 
 bool suited(std::vector<int> color) {
     if (color[0] > 4 || color[1] > 4 || color[2] > 4 || color[3] > 4) {
@@ -77,8 +83,9 @@ class Dealer {
                 for(int k=j+1;k<5;k++){
                     for(int l=k+1;l<6;l++){
                         for(int m=l+1;m<7;m++){
-                            
-                            short rank = typeTable::typeMap[cards[0]]; // 这里需要根据牌的具体编码来计算牌型排名
+                            int composeId = odd_list[all_cards[i]] * odd_list[all_cards[j]] * odd_list[all_cards[k]] * odd_list[all_cards[l]] * odd_list[all_cards[m]];
+                            short rank = typeTable::typeMap[composeId]; // 这里需要根据牌的具体编码来计算牌型排名
+
                             if (rank > max_rank) {
                                 max_rank = rank;
                             }
@@ -94,7 +101,8 @@ class Dealer {
         // 结算函数，根据玩家的牌型生成排名串
         std::vector<short> odd_list={1,2,3,5,7,11,13,17,19,23,29,31,37};//质数串，用于生成牌型id
         for (int i = 0; i < playerCount; i++) {
-            rank5in7(players[i].hand, cards, odd_list);
+            suited(color);
+            int currentrank = rank5in7(players[i].hand, cards, odd_list);
         }
 
     }

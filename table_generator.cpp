@@ -7,7 +7,7 @@
 inline bool isStraight(int a, int b, int c, int d, int e){
     std::vector<int> cards = {a, b, c, d, e};
     std::sort(cards.begin(), cards.end());
-    if(cards[0] == 0 && cards[1] == 9 && cards[2] == 10 && cards[3] == 11 && cards[4] == 12){
+    if(cards[0] == 0 && cards[1] == 1 && cards[2] == 2 && cards[3] == 3 && cards[4] == 12){//0是2，12是A，这里特殊处理A2345的顺子
         return true;
     }
     for(int i=0; i<4; i++){
@@ -20,7 +20,7 @@ inline bool isStraight(int a, int b, int c, int d, int e){
 
 int main() 
 {
-    std::ofstream outFile("table");
+    std::ofstream outFile("table.txt");
 
     const std::vector<int> numTable = {1,2,3,5,7,11,13,17,19,23,29,31,37};
     std::vector<int> card(13,0);
@@ -88,15 +88,8 @@ int main()
         }
         card[12]--;
     }
-    for (int i = 0; i < 13; i++)
-    {
-        std::cout<<card[i]<<" ";
-    }
-    std::cout<<std::endl;
     std::cout<<"Finished "<<std::endl;
     
-
-
 
     return 0;
 }
