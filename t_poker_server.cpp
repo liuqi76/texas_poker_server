@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <map>
 #include <fstream>
+#include <thread>
 
 class typeTable {
     private:
@@ -35,9 +36,12 @@ struct otherMsg : public Msg{
 };//服务器发给玩家的消息。
 //通知其他玩家的行动、欢迎页面、提示等。
 
-struct inPlayerMsg : public Msg{
+struct PlayerMsg : public Msg{
+    short Msglen;//消息体长度
+
     int playerId;
     enum inMsgType { CREATE_ROOM=0, JOIN_ROOM, START_GAME, PLAYER_ACTION, END_GAME } type;
+    std::string content;//玩家发来的消息体，可能是json、protobuf或者二进制串，具体格式由type决定
 };//玩家发来的消息。当创建房间时，附加数据分别是房间id和人数上限，所有附加数据必填，-1为无效
 //当加入房间时，附加数据1是房间id
 //当开始游戏时，需要判断是否是房主
@@ -239,6 +243,30 @@ void game_prepare_loop() {
 
 }
 
+void addressMsg(PlayerMsg player_msg, struct epoll_event* events, int i) {
+    // 这个函数用于处理玩家发来的消息，根据消息类型调用相应的游戏逻辑函数
+    switch(player_msg.type) {
+        case PlayerMsg::CREATE_ROOM:
+            // 调用创建房间的函数
+            break;
+        case PlayerMsg::JOIN_ROOM:
+            // 调用加入房间的函数
+            break;
+        case PlayerMsg::START_GAME:
+            // 调用开始游戏的函数
+            break;
+        case PlayerMsg::PLAYER_ACTION:
+            // 调用处理玩家行动的函数
+            break;
+        case PlayerMsg::END_GAME:
+            // 调用结束游戏的函数
+            break;
+        default:
+            // 处理未知消息类型
+            break;
+    }
+}
+
 int main() {
     std::cout << "Server started" << std::endl;
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);//为进程分配了一个文件描述符（空）
@@ -324,8 +352,49 @@ int main() {
                 //MSG_WAITALL 表示等待缓冲区大于等于前面读取的字节数才返回
                 if(bytes_read > 0) {
                     // 正常读取数据
+                    //数据包结构：[包总长]4字节 + [消息类型]2字节 + [消息体（JSON 或 Protobuf 或 二进制串）]
                     
-                    buffer
+                    //
+                    //
+                    //拿到buffer之后，解决粘包和分包问题，解析出一个完整的消息体，构造PlayerMsg对象，扔给一个thread
+                    //直到处理完所有本fd的消息（把所有本fd的请求都给thread，不需要阻塞，要detach）
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    //
+                    auto t1 = new std::thread(addressMsg, player_msg, events, i);
+
 
                 } else if (bytes_read == 0) {
                     // 玩家断开了连接
