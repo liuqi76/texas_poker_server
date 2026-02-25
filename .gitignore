@@ -2,3 +2,6 @@ t_poke_server
 table.txt
 *.exe
 .vscode
+table.bin
+table_test.cpp
+table_test.exe
