@@ -1,10 +1,13 @@
+/*
+main 函数，server_init，启动 epoll 主循环。只做启动和初始化，不写业务逻辑。
+*/
+
 #include <iostream>
 #include <string.h>
 #include <vector>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
-#include <thread>
 #include <arpa/inet.h> 
 #include <sys/epoll.h>
 #include <fcntl.h>
@@ -20,36 +23,44 @@ class typeTable {
     friend void init_table();
 };
 
-struct Msg {
-    int attachedData1=-1;
-    int attachedData2=-1;
+std::string generate_token(){
+    // 新增：生成32字节随机token，返回64字符hex string
+    
+}
+
+void server_init(){
+    // 新增：服务器启动时的全局初始化（init_table、线程池、定时器线程等）
+
+}
+
+// 接收到的原始帧（解包后）
+struct Frame {
+    uint8_t  msgType;
+    uint32_t seqId;
+    std::vector<uint8_t> payload;  // 用 vector 代替 string，不截断二进制
 };
 
-struct DealerMsg : public Msg{
-    int dealerId;
-    enum outMsgType { DISTRIBUTE=0, ACTION_SUCCESS, ACTION_RES } type;
-};//发牌信息、行动成功后的信息
+// 投入任务队列的待处理请求任务单元
+struct Task {
+    uint8_t  msgType;
+    uint32_t uid;
+    uint32_t dealerId;   // 0 = 不属于任何局
+    std::vector<uint8_t> payload;
+};
 
-struct otherMsg : public Msg{
-    enum otherMsgType {UPDATE=0,STATUE_CHANGE} type;
-    enum updateType { NEW_PLAYER=0, PLAYER_LEFT, NEW_BET, NEW_COMMUNITY_CARD,  } updateType;
-};//服务器发给玩家的消息。
-//通知其他玩家的行动、欢迎页面、提示等。
-
-struct PlayerMsg : public Msg{
-    short Msglen;//消息体长度
-
-    int playerId;
-    enum inMsgType { CREATE_ROOM=0, JOIN_ROOM, START_GAME, PLAYER_ACTION, END_GAME } type;
-    std::string content;//玩家发来的消息体，可能是json、protobuf或者二进制串，具体格式由type决定
-};//玩家发来的消息。当创建房间时，附加数据分别是房间id和人数上限，所有附加数据必填，-1为无效
-//当加入房间时，附加数据1是房间id
-//当开始游戏时，需要判断是否是房主
-//当玩家行动时，附加数据1是行动类型（跟注=0、加注、全押、弃牌），附加数据2是操作对应的金额
+// 各类 C2S payload 需定义，例如：
+struct CreateRoomPayload {
+    uint32_t roomId;
+    int32_t  smallBlind;
+};
+struct ActionRaisePayload {
+    int32_t totalBet;
+};
+// ...其余类似
 
 struct Pot {
     int amount; // 底池金额
-    std::vector<int> exempt_players; // 没有资格参与这个底池分配的玩家列表（all in的玩家）
+    std::vector<int> excluded_players; // 没有资格参与这个底池分配的玩家列表（all in的玩家）
 };
 
 enum suit { HEARTS = 0, DIAMONDS, CLUBS, SPADES }; // 花色，'H', 'D', 'C', 'S'
@@ -59,14 +70,6 @@ struct card
     enum suit color;
     int rank; // 牌面值，0-12分别代表2、3...10、J、Q、K、A
 };
-
-
-bool suited(std::vector<int> color) {
-    if (color[0] > 4 || color[1] > 4 || color[2] > 4 || color[3] > 4) {
-        return true; // 同花
-    }
-    return false; // 不同花
-}
 
 void init_table(){
     // 从table.txt中读取牌型表，初始化typeTable::typeMap
@@ -78,6 +81,8 @@ void init_table(){
     }
 }
 
+class Player;
+
 class Dealer {
     int dealerId;
     int playerCount;//用于轮换sb和bb
@@ -87,10 +92,10 @@ class Dealer {
     std::vector<Pot> pots;//池串，第一个是底池，默认所有人瓜分，后面是边池，需要参考exempt_players来分配
     std::vector<int> allinSequence;//all in顺序串，记录每个玩家all in的顺序，用于计算边池分配
     int currentBet;//当前轮的最高下注金额
-    int sbId;//小盲玩家id
-    std::vector<short> cards[5];//牌串，记录公共牌
-    std::vector<short> color[4];//花色数量串，记录公共牌的四种花色数量，用于判断同花
-    short currentPotIndex;//当前的底池索引
+    int sbId;//小盲玩家id（其实是index）
+    //需要更改：std::vector<short> cards[5];//牌串，记录公共牌
+    std::vector<short> privateCards;//手牌串，01是玩家一的，23是玩家二的，以此类推。每局开始时清理，不会造成因玩家退出导致错位
+    std::vector<int> playerfdString;//记录所有玩家的fd，一局结束之前不会
     static constexpr int oddList[52] = {
         1, 2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 
         59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 
@@ -98,17 +103,12 @@ class Dealer {
         227, 229, 233
     };//质数表，用于生成牌型id
 
-    void count(int AllinCount, int * AllinAmountList, int * AllinPlayerList) {//本轮allin人数、allin的金额、allin玩家的id列表
-        // 当一轮结束时，计算底池金额和边池金额
-        for (int i = 0; i < AllinCount; i++) {
-            int allin_amount = AllinAmountList[i];
-            int allin_player = AllinPlayerList[i];
-            // 根据allin金额和玩家状态计算边池金额
-            // 更新pot和sidepot
-        }
+    void count() {
+        // 当一轮结束时，计算新的底池金额和边池金额
+
     }
 //0 1 2 3 4 5 6
-    short rank5in7(int& hand[2],  std::vector<short> community_cards) {
+    short rank5in7(short hand[2],  std::vector<short> community_cards) {
         // 计算玩家最大可能牌型，并转换为牌型排名
         std::vector<int> all_cards={hand[0], hand[1], community_cards[0], community_cards[1], community_cards[2], community_cards[3], community_cards[4]};
         short max_rank = 1;
@@ -138,14 +138,15 @@ class Dealer {
     }
 
     void distribute() {
-        
+        //发牌，发公共牌和玩家数*2的手牌
     }
 
     void rotate_blinds() {
         // 轮换小盲和大盲
         sbId = (sbId + 1) % playerCount;
     }
-    public:
+    
+    /*旧版dealer请求处理逻辑，需要重写
     short player_call(Player* player) {
         // 处理玩家的跟注，计算实际下注金额
        
@@ -164,8 +165,48 @@ class Dealer {
         // 更新底池金额
         allinSequence.push_back(playerid);
         return 0;
-    }
+    }*/
 
+        // 改：初始化牌桌，Fisher-Yates洗牌，重置所有局内状态
+    void init();
+
+    // 改：发手牌，逐玩家send DEAL_HOLECARDS（只发给对应fd）
+    void distribute();
+
+    // 改：边池计算，按allin金额从小到大切割，处理fold玩家contribution
+    void count();
+
+    // 改：对所有alivePlayer调用rank5in7，生成排名列表
+    void player_rank();
+
+    // 改：逐pot找胜者分配筹码，处理平局余量，广播SETTLE_RESULT
+    void settle();
+
+    // 新增：推进到下一个GamePhase（揭牌或进入SHOWDOWN）
+    void advance_phase();
+
+    // 新增：检查提前结束条件（A: 仅剩1活跃无allin；B: 有allin且活跃≤1）
+    bool check_early_end();
+
+    // 新增：下注轮终止条件判断（所有activePlayer下注相等且均已行动）
+    bool betting_round_over();
+
+    // 新增：推进currentActor到下一个activePlayer，发ACTION_REQUIRED，设定时器
+    void advance_actor();
+
+    // 新增：构造并返回当前完整GameState快照的序列化字节流（重连时使用）
+    std::vector<uint8_t> serialize_state();
+
+
+    public:
+    // 改：player_call，补全实际跟注金额计算逻辑，返回int32_t
+    int32_t player_call(const std::string& token);
+
+    // 改：player_allin，触发边池重新计算
+    void player_allin(const std::string& token, int32_t amount);
+
+    // 改：标记fold，手牌作废
+    void player_fold(const std::string& token);
 };
 
 class Player {
@@ -176,18 +217,15 @@ class Player {
     short chips;
     short hand[2]; // 手牌
     short rebuycount;
-    Dealer* dealer;// 这个玩家所在的牌局的dealer
+    //Dealer* dealer;// 这个玩家所在的牌局的dealer
     short currentBet;//当前轮已经下注的金额
     enum status { WAITING, ACTIVE, FOLDED, ALL_IN } playerStatus;//这里的waiting表示在局内但是还未轮到，active表示正在行动
 
     int rebuy(int amount) {
-        if (amount <= 0||amount > 10) return-1; // 无效的买入金额
-        chips += amount*100;
-        rebuycount += amount;
-        return 0; // 成功买入
+        //只请求，校验移到handle_rebuy
     }
 
-    void fold() {
+    /*void fold() {
         // 玩家弃牌
         dealer->player_fold(this);
         playerStatus = FOLDED;
@@ -210,19 +248,172 @@ class Player {
         dealer->player_allin(playerid, chips);
         chips = 0;
         playerStatus = ALL_IN;
-    }
+    }*/
 };
+
+enum class RoomStatus : uint8_t {
+    WAITING = 0,
+    IN_GAME = 1
+};
+
+class Room {
+    uint32_t   roomId;
+    std::string ownerToken;          // 房主token，退出时顺延
+    std::vector<std::string> players;// 按座位顺序存token
+    RoomStatus status;
+    int32_t    smallBlind;
+    Dealer*    dealer;               // 游戏中时非空，等待时为nullptr
+
+public:
+    // 构造时传入房主token、房间号、小盲注位置
+    Room(const std::string& ownerToken, uint32_t roomId, int32_t smallBlind);
+
+    // 新玩家加入：将玩家加入players列表，广播ROOM_UPDATE
+    bool join(const std::string& token);
+
+    // 玩家退出：将玩家移出players列表，处理房主顺延，返回是否需要销毁房间
+    bool leave(const std::string& token);
+
+    // 房主退出：顺延房主给players[0]
+    void transfer_owner();
+
+    // 游戏开始初始化：创建Dealer实例，提交init Task，status置为IN_GAME
+    void start_game();
+
+    // 游戏结束：销毁Dealer，房间的status置回WAITING
+    void end_game();
+
+    // 公共事件：构造并广播ROOM_UPDATE帧给房间内所有玩家
+    void broadcast_room_update();
+
+    // 供外部查询
+    bool is_owner(const std::string& token) const;// 检查房主权限操作合法性
+    bool is_full() const;           // 供房主设最大人数上限
+    RoomStatus get_status() const;                  // 查询游戏状态
+};
+
+// 新增：创建RoomInstance，写入全局map，绑定房主
+void room_create(const std::string& token, uint32_t roomId, int32_t smallBlind);
+
+// 新增：将玩家加入房间，广播ROOM_UPDATE
+void room_join(const std::string& token, uint32_t roomId);
+
+// 新增：将玩家移出房间，处理房主顺延，房间空则销毁
+void room_leave(const std::string& token);
+
+// 新增：销毁RoomInstance，清理相关资源
+void room_destroy(uint32_t roomId);
+
+
+// 新增：定时器线程主循环，维护最小堆，到期则投入TIMEOUT Task
+void timer_loop();
+
+// 新增：为指定玩家设置行动deadline，写入最小堆
+void set_action_timer(const std::string& token, std::chrono::steady_clock::time_point deadline);
+
+// 新增：取消指定玩家的计时器（行动完成时调用），通过seqId失效
+void cancel_action_timer(const std::string& token);
+
+// 新增：心跳扫描线程主循环，每30s检查所有玩家最后活跃时间
+void heartbeat_scan_loop();
+
 
 void set_nonblocking(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
     fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
-void send_hello(int client_fd) {//欢迎新玩家，并确认已连接，同时给出现在的牌局状态
-    const char* message = "Welcome to the poker game!\n";
-    send(client_fd, message, strlen(message), 0);
+void read_and_enqueue(int fd){
+    // 新增：循环read直到EAGAIN，按Header拼接完整帧，完整帧投入任务队列
+
 }
 
+void send_frame(int fd, uint8_t msgType, const std::vector<uint8_t>& payload){
+    // 新增：序列化并发送一个S2C帧给指定fd
+
+}
+
+void broadcast(uint32_t roomId, uint8_t msgType, const std::vector<uint8_t>& payload){
+    // 新增：向room内所有玩家广播一个S2C帧
+
+}
+
+void handle_new_connection(int server_fd, int epoll_fd){
+    // 新增：accept新连接，生成token，建立fd→token映射，发送CONN_ACK
+
+}
+
+void handle_disconnect(int fd){
+    // 新增：处理fd断开（主动或被动），更新映射表，触发断线流程
+
+}
+
+void threadpool_init(int worker_count){
+    // 新增：启动固定数量的worker线程，阻塞等待任务队列
+
+}
+
+void enqueue_task(Task task){
+// 新增：将Task投入全局任务队列，唤醒一个worker
+
+}
+
+void worker_loop(){
+    // 新增：worker线程主循环，取Task并路由到对应处理函数
+
+}
+
+// 新增：worker取到Task后的总路由入口，按msgType分发
+void dispatch_task(Task task);
+
+// 新增：处理CONN_REQ，更新nickname
+void handle_conn_req(const std::string& token, const std::vector<uint8_t>& payload);
+
+// 新增：处理RECONNECT_REQ，验证token，替换fd，发GAME_STATE快照
+void handle_reconnect(int new_fd, const std::vector<uint8_t>& payload);
+
+// 新增：处理HEARTBEAT，更新最后活跃时间戳，回HEARTBEAT_ACK
+void handle_heartbeat(const std::string& token);
+
+// 新增：处理CREATE_ROOM
+void handle_create_room(const std::string& token, const std::vector<uint8_t>& payload);
+
+// 新增：处理JOIN_ROOM
+void handle_join_room(const std::string& token, const std::vector<uint8_t>& payload);
+
+// 新增：处理LEAVE_ROOM，含房主顺延和房间销毁逻辑
+void handle_leave_room(const std::string& token);
+
+// 新增：处理START_GAME，校验房主，创建DealerInstance，提交初始化Task
+void handle_start_game(const std::string& token);
+
+// 新增：处理轮内行动（fold/check/call/raise/allin），校验当前行动者
+void handle_player_action(const std::string& token, const std::vector<uint8_t>& payload);
+
+// 新增：处理REBUY_REQUEST
+void handle_rebuy(const std::string& token, const std::vector<uint8_t>& payload);
+
+// 新增：处理REBUY_DONE，所有玩家确认后触发新局
+void handle_rebuy_done(const std::string& token);
+
+// 新增：处理END_GAME（房主强制结束），立即结算并销毁DealerInstance
+void handle_end_game(const std::string& token);
+
+// 新增：处理TIMEOUT Task，执行自动check或fold，更新连续超时计数
+void handle_timeout(const std::string& token);
+
+// 新增：处理DISCONNECT Task，按玩家当前状态执行离线逻辑
+void handle_disconnect_task(const std::string& token);
+
+
+
+
+
+
+void send_hello() {//欢迎新玩家，并确认已连接，同时给出现在的牌局状态
+}
+
+/*已废除，统一改为单独服务员线程监听->处理线程
 void game_loop() {
     // 这里是游戏的主循环，处理玩家的行动，更新游戏状态，发送更新给玩家等
     while(true){
@@ -241,30 +432,11 @@ void game_prepare_loop() {
     }// 房主选择开始游戏后，跳出循环，进入game_loop
     game_loop();
 
-}
+}*/
 
-void addressMsg(PlayerMsg player_msg, struct epoll_event* events, int i) {
-    // 这个函数用于处理玩家发来的消息，根据消息类型调用相应的游戏逻辑函数
-    switch(player_msg.type) {
-        case PlayerMsg::CREATE_ROOM:
-            // 调用创建房间的函数
-            break;
-        case PlayerMsg::JOIN_ROOM:
-            // 调用加入房间的函数
-            break;
-        case PlayerMsg::START_GAME:
-            // 调用开始游戏的函数
-            break;
-        case PlayerMsg::PLAYER_ACTION:
-            // 调用处理玩家行动的函数
-            break;
-        case PlayerMsg::END_GAME:
-            // 调用结束游戏的函数
-            break;
-        default:
-            // 处理未知消息类型
-            break;
-    }
+void addressMsg() {
+    // 这个函数用于处理玩家发来的请求，根据消息类型调用相应的游戏逻辑函数
+    
 }
 
 int main() {
@@ -335,8 +507,8 @@ int main() {
                     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &client_ev);
                     
                     // 调用欢迎
-                    send_hello(client_fd);
-                    // 一个fd是一个连接的索引
+                    //send_hello(client_fd);需要重写
+                    // 一个fd是一个连接的索引       需要改成token，用于唯一标识玩家而不是连接，fd只在网络事件使用
                     printf("New player connected: %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
                 }
 
@@ -393,7 +565,6 @@ int main() {
                     //
                     //
                     //
-                    auto t1 = new std::thread(addressMsg, player_msg, events, i);
 
 
                 } else if (bytes_read == 0) {

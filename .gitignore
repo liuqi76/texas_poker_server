@@ -1,3 +1,4 @@
 t_poke_server
 table.txt
-table_generate
+*.exe
+.vscode
