@@ -39,7 +39,21 @@ private:
     std::vector<short> privateCards;
     std::vector<int> playerfdString;
     
-    static constexpr int oddList[52];
+    static constexpr int oddList[52] = {
+    2,   3,   5,   7,   // 2  (花色0-3)
+    11,  13,  17,  19,  // 3
+    23,  29,  31,  37,  // 4
+    41,  43,  47,  53,  // 5
+    59,  61,  67,  71,  // 6
+    73,  79,  83,  89,  // 7
+    97,  101, 103, 107, // 8
+    109, 113, 127, 131, // 9
+    137, 139, 149, 151, // 10
+    157, 163, 167, 173, // J
+    179, 181, 191, 193, // Q
+    197, 199, 211, 223, // K
+    227, 229, 233, 239  // A
+};
 
     void count();
     short rank5in7(short hand[2], std::vector<short> community_cards);
