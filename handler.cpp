@@ -11,48 +11,49 @@ dispatch_task 和全部 handle_* 函数
 #include <iostream>
 #include <vector>
 #include <string>
+#include <algorithm>
 
 // 新增：worker取到Task后的总路由入口，按msgType分发
 void dispatch_task(Task task) {
     switch (task.msgType) {
         case CONN_REQ:
-            handle_conn_req(task.uid, task.payload);
+            handle_conn_req(std::to_string(task.uid), task.payload);
             break;
         case RECONNECT_REQ:
             // 注意：RECONNECT_REQ需要fd信息，这里需要特殊处理
             break;
         case HEARTBEAT:
-            handle_heartbeat(task.uid);
+            handle_heartbeat(std::to_string(task.uid));
             break;
         case CREATE_ROOM:
-            handle_create_room(task.uid, task.payload);
+            handle_create_room(std::to_string(task.uid), task.payload);
             break;
         case JOIN_ROOM:
-            handle_join_room(task.uid, task.payload);
+            handle_join_room(std::to_string(task.uid), task.payload);
             break;
         case LEAVE_ROOM:
-            handle_leave_room(task.uid);
+            handle_leave_room(std::to_string(task.uid));
             break;
         case START_GAME:
-            handle_start_game(task.uid);
+            handle_start_game(std::to_string(task.uid));
             break;
         case PLAYER_ACTION:
-            handle_player_action(task.uid, task.payload);
+            handle_player_action(std::to_string(task.uid), task.payload);
             break;
         case REBUY_REQUEST:
-            handle_rebuy(task.uid, task.payload);
+            handle_rebuy(std::to_string(task.uid), task.payload);
             break;
         case REBUY_DONE:
-            handle_rebuy_done(task.uid);
+            handle_rebuy_done(std::to_string(task.uid));
             break;
         case END_GAME:
-            handle_end_game(task.uid);
+            handle_end_game(std::to_string(task.uid));
             break;
         case TIMEOUT:
-            handle_timeout(task.uid);
+            handle_timeout(std::to_string(task.uid));
             break;
         case DISCONNECT:
-            handle_disconnect_task(task.uid);
+            handle_disconnect_task(std::to_string(task.uid));
             break;
         default:
             std::cerr << "Unknown message type: " << static_cast<int>(task.msgType) << std::endl;

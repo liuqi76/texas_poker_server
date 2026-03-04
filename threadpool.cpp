@@ -22,6 +22,9 @@ std::mutex task_queue_mutex;
 std::condition_variable task_queue_cv;
 std::atomic<bool> stop_threadpool{false};
 
+//flag
+bool go_stop_threadpool = false;
+
 void threadpool_init(int worker_count) {
     // 新增：启动固定数量的worker线程，阻塞等待任务队列
     for (int i = 0; i < worker_count; ++i) {
@@ -43,7 +46,8 @@ void enqueue_task(Task task) {
 
 void worker_loop() {
     // 新增：worker线程主循环，取Task并路由到对应处理函数
-    while (!stop_threadpool) {
+    go_stop_threadpool = false;//将停止flag置为false
+    while (!go_stop_threadpool) {
         Task task;
         
         {
@@ -51,10 +55,10 @@ void worker_loop() {
             
             // 等待任务或停止信号
             task_queue_cv.wait(lock, [] {
-                return !task_queue.empty() || stop_threadpool;
+                return !task_queue.empty() || go_stop_threadpool;
             });
             
-            if (stop_threadpool && task_queue.empty()) {
+            if (go_stop_threadpool && task_queue.empty()) {
                 return;
             }
             
@@ -76,7 +80,7 @@ void worker_loop() {
 
 void stop_threadpool() {
     // 停止线程池
-    stop_threadpool = true;
+    go_stop_threadpool = true;
     task_queue_cv.notify_all();
     std::cout << "线程池已停止" << std::endl;
 }

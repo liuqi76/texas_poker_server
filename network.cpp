@@ -7,6 +7,11 @@ handle_disconnect、read_and_enqueue、epoll 主循环
 
 #include "network.h"
 #include "types.h"
+#include "room.h"
+#include "timer.h"
+#include "dealer.h"
+#include "threadpool.h"
+
 #include <iostream>
 #include <string.h>
 #include <sys/socket.h>
@@ -19,6 +24,7 @@ handle_disconnect、read_and_enqueue、epoll 主循环
 #include <random>
 #include <sstream>
 #include <iomanip>
+#include <thread>
 
 void set_nonblocking(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
@@ -183,7 +189,7 @@ void handle_disconnect(int fd) {
         disconnect_task.dealerId = 0;
         disconnect_task.payload = std::vector<uint8_t>();
         
-        enqueue_task(disconnect_task);
+        enqueue_task(disconnect_task);//未声明，不知道啥情况
         
         std::cout << "玩家断开连接，fd: " << fd << ", token: " << token << std::endl;
     }
