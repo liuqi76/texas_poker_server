@@ -14,6 +14,7 @@ handle_disconnect、read_and_enqueue、epoll 主循环
 #include "dealer.h"
 #include "threadpool.h"
 #include "handler.h"
+#include "protocol.h"
 
 #include <iostream>
 #include <string.h>
@@ -260,7 +261,7 @@ void handle_new_connection(int server_fd, int epoll_fd) {
         printf("新玩家连接: %s:%d, 等待握手。\n", 
                inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
         
-        send_frame(client_fd,get_ack_frame(client_fd));
+        send_frame(client_fd,make_ack_frame(client_fd));
         handle_handshake(client_fd);
     }
 }

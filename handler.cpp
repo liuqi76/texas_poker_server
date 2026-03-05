@@ -110,7 +110,7 @@ void handle_create_room(const std::string& token, const std::vector<uint8_t>& pa
     
     const CreateRoomPayload* createPayload = reinterpret_cast<const CreateRoomPayload*>(payload.data());
     uint32_t roomId = createPayload->roomId;
-    int32_t smallBlind = createPayload->smallBlind;
+    int32_t smallBlind = 0;//默认为房主开始
     
     // 创建房间
     room_create(token, roomId, smallBlind);
