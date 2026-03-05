@@ -5,3 +5,6 @@ table.txt
 table.bin
 table_test.cpp
 table_test.exe
+t_poke_server.cpp
+t_poke_server
+*.md

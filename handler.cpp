@@ -8,6 +8,7 @@ dispatch_task 和全部 handle_* 函数
 #include "types.h"
 #include "room.h"
 #include "dealer.h"
+#include "network.h"
 #include <iostream>
 #include <vector>
 #include <string>
@@ -60,6 +61,22 @@ void dispatch_task(Task task) {
             break;
     }
 }
+
+// 处理新连接的握手
+void handle_new_connection(int server_fd, int epoll_fd){
+    if(false){
+        /*
+        重连逻辑
+        */
+    }
+    else {
+        /*
+        正常执行
+        */
+    }
+}
+
+void handle_disconnect(int fd);
 
 // 新增：处理CONN_REQ，更新nickname
 void handle_conn_req(const std::string& token, const std::vector<uint8_t>& payload) {

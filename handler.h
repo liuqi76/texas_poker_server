@@ -1,3 +1,4 @@
+#pragma once
 /*
 业务逻辑处理函数声明
 */
@@ -11,6 +12,11 @@
 
 // 任务分发
 void dispatch_task(Task task);
+
+// 转自network.cpp，处理新连接、处理加入队列、处理重连等
+void handle_handshake(int client_fd);//握手逻辑，
+void handle_disconnect(int fd);
+
 
 // 各种处理函数
 void handle_conn_req(const std::string& token, const std::vector<uint8_t>& payload);

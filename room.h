@@ -1,3 +1,4 @@
+#pragma once
 /*
 Room类声明
 */

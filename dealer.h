@@ -1,3 +1,4 @@
+#pragma once
 /*
 Dealer类声明
 */

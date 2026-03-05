@@ -1,3 +1,4 @@
+#pragma once
 /*
 Player类声明
 */

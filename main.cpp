@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/epoll.h>
+#include <thread>
 #include "types.h"
 #include "network.h"
 
@@ -16,8 +17,15 @@ int main() {
     std::cout << "服务器启动中..." << std::endl;
     
     // 服务器初始化
-    server_init();
-    
+    std::vector<std::thread> threads = server_init();
+    for(auto& t : threads)
+    {
+        t.detach();// TODO: 给这些线程加信号，实现安全退出
+    }
+
+    epoll_loop(8080);
+
+    /* 以下部分改到network.cpp里面，main只负责
     // 创建socket
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd == -1) {
@@ -79,9 +87,9 @@ int main() {
     std::cout << "服务器启动成功，监听端口 8888" << std::endl;
     
     // epoll事件循环
-    struct epoll_event events[20];
+    struct epoll_event events[256];
     while (true) {
-        int n = epoll_wait(epoll_fd, events, 20, -1);
+        int n = epoll_wait(epoll_fd, events, 256, -1);
         if (n == -1) {
             std::cerr << "epoll_wait失败" << std::endl;
             break;
@@ -102,6 +110,8 @@ int main() {
     close(epoll_fd);
     close(server_fd);
     
-    std::cout << "服务器关闭" << std::endl;
+    */
+    std::cout << "服务器已关闭" << std::endl;
+
     return 0;
 }

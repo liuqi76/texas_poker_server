@@ -1,3 +1,4 @@
+#pragma once
 /*
 自定义协议定义,包含协议相关的处理函数
 
@@ -17,16 +18,19 @@ constexpr uint32_t PROTOCOL_MAGIC = 0x504F4B45; // "POKE"
 constexpr uint32_t PROTOCOL_VERSION = 0x00010000; // 1.0.0
 
 // 帧头结构
-#pragma pack(push, 1)
+#pragma pack(push, 1)       // 保存当前对齐设置，然后改为1字节对齐
 struct FrameHeader {
     uint32_t magic;          // 魔数，固定为PROTOCOL_MAGIC
     uint32_t version;        // 协议版本
     uint32_t total_length;   // 整个帧的总长度（包括header）
     uint8_t  msg_type;       // 消息类型
     uint32_t seq_id;         // 序列号
-    uint32_t checksum;       // 校验和（可选）
+    //uint32_t checksum;       // 校验和（可选）
 };
 #pragma pack(pop)
+
+// 返回一个ack帧
+std::vector<uint8_t> make_ack_frame(int client_fd);
 
 // 序列化一个帧
 std::vector<uint8_t> serialize_frame(uint8_t msg_type, uint32_t seq_id, 
