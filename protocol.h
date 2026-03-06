@@ -29,21 +29,27 @@ struct FrameHeader {
 };
 #pragma pack(pop)
 
-// 返回一个ack帧
-std::vector<uint8_t> make_ack_frame(int client_fd);
+// 反序列化错误码枚举
+enum class DeserializeError {
+    SUCCESS = 0,               // 成功
+    INSUFFICIENT_DATA,         // 数据长度不足（帧头或完整帧）
+    INVALID_MAGIC,             // 魔数不匹配
+    VERSION_MISMATCH,          // 版本不匹配
+    DATA_CORRUPTED,            // 数据损坏（长度不一致）
+    UNKNOWN_ERROR              // 未知错误
+};
 
-// 序列化一个帧
-std::vector<uint8_t> serialize_frame(uint8_t msg_type, uint32_t seq_id, 
-                                     const std::vector<uint8_t>& payload);
+// 反序列化，输出到 frame
+DeserializeError deserialize_frame(const std::vector<uint8_t>& data, Frame& frame);
 
-// 反序列化一个帧
-bool deserialize_frame(const std::vector<uint8_t>& data, Frame& frame);
+// 错误码转字符串
+const char* deserialize_error_to_string(DeserializeError error);
 
 // 计算校验和
 uint32_t calculate_checksum(const std::vector<uint8_t>& data);
 
 // 验证帧头
-bool validate_frame_header(const FrameHeader& header);
+DeserializeError validate_frame_header(const FrameHeader& header);
 
 // 打包CreateRoomPayload
 std::vector<uint8_t> pack_create_room_payload(uint32_t room_id, int32_t small_blind);
@@ -71,6 +77,10 @@ std::vector<uint8_t> pack_rebuy_payload(int32_t amount);
 
 // 解包重购请求payload
 bool unpack_rebuy_payload(const std::vector<uint8_t>& data, int32_t& amount);
+
+// 序列化一个帧（无payload则不传pyload）
+std::vector<uint8_t> serialize_frame(uint8_t msg_type, uint32_t seq_id, const std::vector<uint8_t>& payload);
+std::vector<uint8_t> serialize_frame(MsgType msg_type, uint32_t seq_id);
 
 // 网络字节序转换辅助函数
 uint32_t htonl_safe(uint32_t hostlong);

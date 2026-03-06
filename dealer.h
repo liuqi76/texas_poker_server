@@ -8,16 +8,17 @@ Dealer类声明
 
 #include <vector>
 #include <string>
-#include <map>
+#include <unordered_map>
 #include <cstdint>
 
 // 前向声明
 class Player;
 struct Pot;
+class Dealer;
 
 class typeTable {
 private:
-    static std::map<long long, short> typeMap;
+    static std::unordered_map<long long, short> typeMap;
 
     friend class Dealer;
     friend void init_table();

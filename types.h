@@ -10,10 +10,12 @@
 #ifndef TYPES_H
 #define TYPES_H
 
+#include "player.h"
 #include <cstdint>
 #include <vector>
 #include <string>
 #include <map>
+#include <unordered_set>
 #include <mutex>
 #include <chrono>
 
@@ -29,7 +31,7 @@ struct Frame {
 struct Task {
     MsgType  msgType;
     uint32_t uid;
-    uint32_t dealerId;   // 0 = 不属于任何局
+    Dealer* dealerptr;   // nullptr = 不属于任何局
     std::vector<uint8_t> payload;
 };
 
@@ -188,18 +190,22 @@ enum MsgType {
 
 // Room前向声明
 class Room;
+extern std::unordered_set<int> handshakepool;              // 放等待握手的clientfd
 
 // 全局映射表声明
 extern std::map<int, std::string> fd_to_token;      // fd -> token
 extern std::map<std::string, int> token_to_fd;      // token -> fd
 extern std::map<std::string, uint32_t> token_to_uid; // token -> uid
+extern std::map<uint32_t, Player*> uid_to_player;   // uid -> plauer*
 extern std::map<uint32_t, Room*> room_map;          // roomId -> Room*
 extern std::map<std::string, std::chrono::steady_clock::time_point> last_active_time;
 
 // 全局互斥锁声明
-extern std::mutex fd_token_mutex;
-extern std::mutex room_map_mutex;
-extern std::mutex task_queue_mutex;
-extern std::mutex timer_mutex;
+extern std::mutex fd_token_mutex;               // 前两个表
+extern std::mutex room_map_mutex;               // 房间表
+extern std::mutex task_queue_mutex;             // 任务队列
+extern std::mutex timer_mutex;                  // timer.cpp
+extern std::mutex pending_mutex;                // 握手池
+extern std::mutex uid_player_mutex;             // uid查player的表
 
 #endif // TYPES_H

@@ -6,19 +6,22 @@ Player类声明
 #ifndef PLAYER_H
 #define PLAYER_H
 
+#include "dealer.h"
 #include <string>
 
 class Player {
 public:
-    int playerid;
+    int uid;
     std::string name;
     
 private:
+    Dealer* dealer;
     short chips;
     short hand[2];
     short rebuycount;
     short currentBet;
     enum status { WAITING, ACTIVE, FOLDED, ALL_IN } playerStatus;
+    uint16_t roomId;
 
 public:
     int rebuy(int amount);
@@ -33,6 +36,7 @@ public:
     void set_hand(short card1, short card2);
     short get_rebuycount() const;
     void increment_rebuycount();
+    uint16_t get_roomId();
 };
 
 #endif // PLAYER_H

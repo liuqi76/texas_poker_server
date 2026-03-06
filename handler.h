@@ -14,11 +14,12 @@
 void dispatch_task(Task task);
 
 // 转自network.cpp，处理新连接、处理加入队列、处理重连等
-void handle_handshake(int client_fd);//握手逻辑，
+void handle_handshake(int client_fd, Frame frame);//判断新连接还是重连，以及玩家状态初始化
 void handle_disconnect(int fd);
 
 
 // 各种处理函数
+Task frame_to_task(const Frame& frame, int client_fd);
 void handle_conn_req(const std::string& token, const std::vector<uint8_t>& payload);
 void handle_reconnect(int new_fd, const std::vector<uint8_t>& payload);
 void handle_heartbeat(const std::string& token);

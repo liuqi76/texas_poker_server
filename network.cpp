@@ -29,6 +29,7 @@ handle_disconnect、read_and_enqueue、epoll 主循环
 #include <sstream>
 #include <iomanip>
 #include <thread>
+#include <unordered_map>
 
 void set_nonblocking(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
@@ -54,23 +55,65 @@ std::string generate_token() {// 已check并更改
     return ss.str();
 }
 
+std::unordered_map<int, std::vector<uint8_t>> recv_buffers;
+
 void read_and_enqueue(int fd) {
     // 新增：循环read直到EAGAIN，按Header拼接完整帧，完整帧投入任务队列
     // TODO: 实现读取和入队逻辑
-    char buffer[1024];
+    uint8_t buffer[4096];
     ssize_t bytes_read;
-    
+
     while ((bytes_read = recv(fd, buffer, sizeof(buffer), 0)) > 0) {
-        // 处理接收到的数据
-        // 需要解决粘包和分包问题
-        //std::cout << "从fd " << fd << " 读取了 " << bytes_read << " 字节数据" << std::endl;
+        // 加到该fd的接收缓冲区
+        auto& buf = recv_buffers[fd];
+        buf.insert(buf.end(), buffer, buffer + bytes_read);
+
+        // 循环尝试从缓冲区里取出完整帧
+        while (true) {
+            // 小于帧头
+            if (buf.size() < sizeof(FrameHeader)) break;
+
+            // 读长度判断是否完整
+            uint32_t total_len;
+            memcpy(&total_len, buf.data() + offsetof(FrameHeader, total_length), 4);
+            total_len = ntohl(total_len);
+
+            if (buf.size() < total_len) break;
+
+            std::vector<uint8_t> frame_data(buf.begin(), buf.begin() + total_len);
+
+            // 从缓冲区移除已消费的数据
+            buf.erase(buf.begin(), buf.begin() + total_len);
+
+            // 反序列化
+            Frame frame;
+            DeserializeError err = deserialize_frame(frame_data, frame);
+            if (err != DeserializeError::SUCCESS) {
+                std::cerr << "反序列化失败 fd=" << fd
+                          << " err=" << deserialize_error_to_string(err) << std::endl;
+                handle_disconnect(fd);
+                return;
+            }
+
+            // 检查是否在握手池
+            {
+                std::lock_guard<std::mutex> lock(pending_mutex);
+                if (handshakepool.count(fd)) {
+                    handshakepool.erase(fd);
+                    handle_handshake(fd, frame);
+                    continue;
+                }
+            }
+
+            // 正常业务帧投入线程池
+            Task newtask = frame_to_task(frame, fd);
+            enqueue_task(newtask);
+        }
     }
-    
+
     if (bytes_read == 0) {
-        // 连接关闭
         handle_disconnect(fd);
     } else if (bytes_read < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-        // 读取错误
         std::cerr << "读取fd " << fd << " 时发生错误: " << strerror(errno) << std::endl;
         handle_disconnect(fd);
     }
@@ -223,8 +266,8 @@ void epoll_loop(int port){
 }
 
 void handle_new_connection(int server_fd, int epoll_fd) {
-    // ~新增：accept新连接，生成token，建立fd→token映射，发送ack_frame
-    // ->只accept并加入epoll，然后执行握手逻辑
+    // ~新增：accept新连接，生成token，建立fd→token映射，发送ack_frame提示握手
+    // ->只accept并加入epoll，然后加入待握手池，下一次进入时跳入握手逻辑
     struct sockaddr_in client_addr;
     socklen_t client_len = sizeof(client_addr);
     int client_fd = accept(server_fd, (struct sockaddr*)&client_addr, &client_len);
@@ -234,7 +277,8 @@ void handle_new_connection(int server_fd, int epoll_fd) {
         set_nonblocking(client_fd);
         
         /* ~生成token
-        // ->等逻辑改到handler的握手里面
+        // ~等逻辑改到handler的握手里面
+        // ->加入待握手池
         //std::string token = generate_token();
         
         // ~建立映射关系
@@ -261,38 +305,40 @@ void handle_new_connection(int server_fd, int epoll_fd) {
         printf("新玩家连接: %s:%d, 等待握手。\n", 
                inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
         
-        send_frame(client_fd,make_ack_frame(client_fd));
-        handle_handshake(client_fd);
+        send_frame(client_fd,serialize_frame(ACCEPT,0));
+        {
+            std::lock_guard<std::mutex> lock(pending_mutex);// 防止取的时候冲突
+            handshakepool.insert(client_fd);
+        }
     }
 }
 
 void handle_disconnect(int fd) {
-    // 新增：处理fd断开（主动或被动），更新映射表，触发断线流程
-    std::lock_guard<std::mutex> lock(fd_token_mutex);
-    
-    auto it = fd_to_token.find(fd);
-    if (it != fd_to_token.end()) {
-        std::string token = it->second;
-        
-        // 从映射表中移除
-        fd_to_token.erase(it);
-        token_to_fd.erase(token);
-        last_active_time.erase(token);
-        
-        // 关闭文件描述符
-        close(fd);
-        
-        // 触发断线任务
-        Task disconnect_task;
-        disconnect_task.msgType = DISCONNECT;
-        disconnect_task.uid = 0; // TODO: 需要获取uid
-        disconnect_task.dealerId = 0;
-        disconnect_task.payload = std::vector<uint8_t>();
-        
-        enqueue_task(disconnect_task);//未声明，不知道啥情况
-        
-        std::cout << "玩家断开连接，fd: " << fd << ", token: " << token << std::endl;
-    }
+    // 断开连接事件处理
+    Task disconnect_task;
+    bool should_enqueue = false;
+
+    {
+        std::lock_guard<std::mutex> lock(fd_token_mutex);
+        auto it = fd_to_token.find(fd);
+        if (it != fd_to_token.end()) {
+            std::string token = it->second;
+            fd_to_token.erase(it);
+            token_to_fd.erase(token);
+            last_active_time.erase(token);
+            close(fd);
+
+            disconnect_task.msgType = DISCONNECT;
+            disconnect_task.uid = token_to_uid.at(token);
+            disconnect_task.dealerptr = nullptr;
+            disconnect_task.payload = {};
+
+            std::cout << "玩家断开连接，fd: " << fd << ", token: " << token << std::endl;
+            should_enqueue = true;
+        }
+    } // 放锁，避免死锁
+
+    if (should_enqueue) enqueue_task(disconnect_task);
 }
 
 std::vector<std::thread> server_init() {

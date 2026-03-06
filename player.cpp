@@ -2,7 +2,7 @@
 Player类成员和实现
 */
 
-//#include "player.h"
+#include "player.h"
 #include "types.h"
 #include <string>
 
@@ -17,6 +17,7 @@ private:
     short rebuycount;
     short currentBet; // 当前轮已经下注的金额
     enum status { WAITING, ACTIVE, FOLDED, ALL_IN } playerStatus; // 这里的waiting表示在局内但是还未轮到，active表示正在行动
+    uint16_t roomId;
 
 public:
     int rebuy(int amount) {
@@ -33,6 +34,11 @@ public:
     // 设置玩家状态
     void set_status(status newStatus) {
         playerStatus = newStatus;
+    }
+
+    // 获取房号
+    uint16_t get_roomId() const {
+        return roomId;
     }
 
     // 获取筹码数量

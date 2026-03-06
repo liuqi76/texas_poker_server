@@ -14,6 +14,23 @@ dispatch_task 和全部 handle_* 函数
 #include <string>
 #include <algorithm>
 
+// 从frame转换成task
+Task frame_to_task(const Frame& frame, int client_fd) {
+    Task newtask;
+    newtask.payload = frame.payload;
+    newtask.msgType = frame.msgType;
+
+    // 查两个id
+    {
+    std::lock_guard<std::mutex> lock(fd_token_mutex);
+    const std::string& token = fd_to_token.at(client_fd);
+    newtask.uid = token_to_uid.at(token);
+    int roomid = uid_to_player.at(newtask.uid)->get_roomId();
+    newtask.dealerptr = room_map.at(roomid)->get_dealer();
+    }
+    return newtask;
+}
+
 // 新增：worker取到Task后的总路由入口，按msgType分发
 void dispatch_task(Task task) {
     switch (task.msgType) {
