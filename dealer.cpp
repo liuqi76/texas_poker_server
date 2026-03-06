@@ -6,6 +6,7 @@ Dealer类成员和实现
 
 #include "dealer.h"
 #include "types.h"
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <algorithm>
@@ -30,7 +31,7 @@ void Dealer::count() {
         // TODO: 实现边池计算逻辑
 }
 
-short Dealer::rank5in7(short hand[2], std::vector<short> community_cards) {
+short Dealer::rank5in7(short hand[2], short community_cards[5]) {
     // 计算玩家最大可能牌型，并转换为牌型排名
     std::vector<int> all_cards = {hand[0], hand[1], community_cards[0], community_cards[1], 
                                     community_cards[2], community_cards[3], community_cards[4]};
@@ -56,24 +57,97 @@ short Dealer::rank5in7(short hand[2], std::vector<short> community_cards) {
     return max_rank;
 }
 
-void Dealer::player_rank(std::vector<Player> players) {
-    // 结算函数，根据玩家的牌型生成排名串
-    // TODO: 实现玩家排名逻辑
+std::vector<Player*> Dealer::rank_player(std::vector<Player*> players) {
+    // 给每个玩家算牌力
+    std::vector<std::pair<short, int>> rank_index;
+    
+    for (int i = 0; i < players.size(); i++) {
+        const short* hand = players[i]->get_hand();
+        short hand_arr[2] = {hand[0], hand[1]};
+        short rank = rank5in7(hand_arr, community_cards);
+        rank_index.push_back({rank, i});
+    }
+    
+    // 按牌力从大到小排序
+    std::sort(rank_index.begin(), rank_index.end(),
+        [](const auto& a, const auto& b) {
+            return a.first > b.first;
+        });
+    
+    // 读取玩家排序，得到大->小
+    std::vector<Player*> sorted_players;
+    for (const auto& [rank, idx] : rank_index) {
+        sorted_players.push_back(players[idx]);
+    }
+    
+    return sorted_players;
 }
 
 void Dealer::distribute() {
+
     // 发牌，发公共牌和玩家数*2的手牌
     // TODO: 实现发牌逻辑
+    // 初始化52张牌
+    std::vector<int> deck(52);
+    for (int i = 0; i < 52; i++) deck[i] = i;
+    
+    // Fisher-Yates 洗牌
+    std::mt19937 rng(std::random_device{}());
+    for (int i = 51; i > 0; i--) {
+        std::uniform_int_distribution<int> dis(0, i);
+        int j = dis(rng);
+        std::swap(deck[i], deck[j]);
+    }
 }
 
-void Dealer::rotate_blinds() {
-    // 轮换小盲和大盲
+void Dealer::rotate_blinds() {//done
+    // 轮换小盲
     sbId = (sbId + 1) % playerCount;
 }
 
 // 改：初始化牌桌，Fisher-Yates洗牌，重置所有局内状态
 void Dealer::init() {
-    // TODO: 实现初始化逻辑
+// 重置玩家状态
+    activePlayerCount = playerCount;
+    activePlayer.assign(playerCount, true);
+    allinPlayer.assign(playerCount, false);
+    allinSequence.clear();
+
+    // 重置下注状态
+    currentBet = 0;
+
+    // 重置底池
+    pots.clear();
+    pots.push_back({0, {}}); // 初始化一个空底池
+
+    // 重置手牌和公共牌
+    privateCards.clear();
+    privateCards.resize(playerCount * 2);
+    memset(community_cards, -1, sizeof(community_cards));
+
+    // Fisher-Yates 洗牌
+    std::vector<short> deck(52);
+    for (int i = 0; i < 52; i++) deck[i] = i;
+
+    std::mt19937 rng(std::random_device{}());
+    for (int i = 51; i > 0; i--) {
+        std::uniform_int_distribution<int> dis(0, i);
+        int j = dis(rng);
+        std::swap(deck[i], deck[j]);
+    }
+
+    // 发手牌，2n张存入privateCards
+    for (int i = 0; i < playerCount * 2; i++) {
+        privateCards[i] = deck[i];
+    }
+
+    // 发公共牌，取接下来5张备用
+    for (int i = 0; i < 5; i++) {
+        community_cards[i] = deck[playerCount * 2 + i];
+    }
+
+    // 轮换小盲
+    rotate_blinds();
 }
 
 // 改：发手牌，逐玩家send DEAL_HOLECARDS（只发给对应fd）
@@ -81,18 +155,13 @@ void Dealer::distribute() {
     // TODO: 实现发牌逻辑
 }
 
-// 改：边池计算，按allin金额从小到大切割，处理fold玩家contribution
+// 改：每一轮有人allin触发，边池计算，按allin金额从小到大切割，需要处理fold玩家contribution
 void Dealer::count() {
     // TODO: 实现边池计算逻辑
 }
 
-// 改：对所有alivePlayer调用rank5in7，生成排名列表
-void Dealer::player_rank() {
-    // TODO: 实现玩家排名逻辑
-}
-
-// 改：逐pot找胜者分配筹码，处理平局余量，广播SETTLE_RESULT
-void Dealer::settle() {
+// 改：逐pot找胜者分筹码，处理平局余量
+void Dealer::settle(std::vector<Player*> ranked_player, std::vector<Pot*> pots) {
     // TODO: 实现结算逻辑
 }
 

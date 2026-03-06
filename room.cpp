@@ -11,7 +11,7 @@ Room类成员和实现
 
 class Room {
 private:
-    uint32_t   roomId;
+    uint16_t   roomId;
     std::string ownerToken;          // 房主token，退出时顺延
     std::vector<std::string> players;// 按座位顺序存token
     RoomStatus status;
@@ -20,7 +20,7 @@ private:
 
 public:
     // 构造时传入房主token、房间号、小盲注位置
-    Room(const std::string& ownerToken, uint32_t roomId, int32_t smallBlind) 
+    Room(const std::string& ownerToken, uint16_t roomId, int32_t smallBlind) 
         : ownerToken(ownerToken), roomId(roomId), smallBlind(smallBlind), 
           status(RoomStatus::WAITING), dealer(nullptr) {
         players.push_back(ownerToken);
@@ -104,7 +104,7 @@ public:
     }
 
     // 获取房间ID
-    uint32_t get_room_id() const {
+    uint16_t get_room_id() const {
         return roomId;
     }
 
@@ -132,13 +132,13 @@ public:
 // 全局房间管理函数
 
 // 新增：创建RoomInstance，写入全局map，绑定房主
-void room_create(const std::string& token, uint32_t roomId, int32_t smallBlind) {
+void room_create(const std::string& token, uint16_t roomId, int32_t smallBlind) {
     std::lock_guard<std::mutex> lock(room_map_mutex);
     room_map[roomId] = new Room(token, roomId, smallBlind);
 }
 
 // 新增：将玩家加入房间，广播ROOM_UPDATE
-void room_join(const std::string& token, uint32_t roomId) {
+void room_join(const std::string& token, uint16_t roomId) {
     std::lock_guard<std::mutex> lock(room_map_mutex);
     auto it = room_map.find(roomId);
     if (it != room_map.end()) {
@@ -175,7 +175,7 @@ void room_leave(const std::string& token) {
 }
 
 // 新增：销毁RoomInstance，清理相关资源
-void room_destroy(uint32_t roomId) {
+void room_destroy(uint16_t roomId) {
     std::lock_guard<std::mutex> lock(room_map_mutex);
     auto it = room_map.find(roomId);
     if (it != room_map.end()) {

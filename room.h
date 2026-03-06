@@ -10,17 +10,18 @@ Room类声明
 #include <string>
 #include <vector>
 #include "types.h"
+#include "player.h"
 
 // 前向声明
 class Dealer;
 
 class Room {
 private:
-    uint32_t   roomId;
+    uint16_t   roomId;
     std::string ownerToken;
-    std::vector<std::string> players;
     RoomStatus status;
     int32_t    smallBlind;
+    std::vector<Player*> players;
     Dealer*    dealer;
 
 public:

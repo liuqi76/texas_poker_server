@@ -38,7 +38,8 @@ private:
     std::vector<int> allinSequence;
     int currentBet;
     int sbId;
-    std::vector<short> privateCards;
+    short community_cards[5];
+    std::vector<short> privateCards;// 2n张
     std::vector<int> playerfdString;
     
     static constexpr int oddList[52] = {
@@ -55,11 +56,11 @@ private:
     179, 181, 191, 193, // Q
     197, 199, 211, 223, // K
     227, 229, 233, 239  // A
-};
+    };
 
     void count();
-    short rank5in7(short hand[2], std::vector<short> community_cards);
-    void player_rank(std::vector<Player> players);
+    short rank5in7(short hand[2], short community_cards[5]);
+    std::vector<Player*> rank_player(std::vector<Player*> players);
     void distribute();
     void rotate_blinds();
 
@@ -67,14 +68,13 @@ public:
     void init();
     void distribute();
     void count();
-    void player_rank();
-    void settle();
+    void get_player_rank();
+    void settle(std::vector<Player*> ranked_player, std::vector<Pot*> pots);
     void advance_phase();
     bool check_early_end();
     bool betting_round_over();
     void advance_actor();
     std::vector<uint8_t> serialize_state();
-
     int32_t player_call(const std::string& token);
     void player_allin(const std::string& token, int32_t amount);
     void player_fold(const std::string& token);
